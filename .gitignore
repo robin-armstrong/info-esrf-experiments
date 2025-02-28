@@ -1,0 +1,12 @@
+*.pdf
+*.png
+*.gif
+*.svg
+*.jld2
+*.swp
+*.mem
+*.sub
+*_log.txt
+*.out
+.DS_Store
+combine*
