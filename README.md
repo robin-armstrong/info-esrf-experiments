@@ -1,4 +1,4 @@
-This repository contains code which replicates the numerical experiments in R. Armstrong and I. Grooms, *Data Assimilation With An Integral-Form Ensemble Square-Root Filter*.
+This repository contains code which replicates the numerical experiments in R. Armstrong and I. Grooms, *Data Assimilation With An Integral-Form Ensemble Square-Root Filter* ([https://arxiv.org/abs/2503.00253](https://arxiv.org/abs/2503.00253)).
 
 ## Getting Started
 
@@ -13,7 +13,7 @@ where `JULIA` is the path to a Julia executable. Once in a Julia terminal, enter
 import Pkg; Pkg.activate(".")
 Pkg.instantiate()
 ```
-You will need to run `import Pkg; Pkg.activate(".")` every time you open Julia to work with this code. The `Pkg.instantiate()` only needs to be run once; it installs project dependencies, a process which may take several minutes.
+You will need to run `import Pkg; Pkg.activate(".")` every time you open Julia to work with this code. The `Pkg.instantiate()` command only needs to be run once; it installs project dependencies, a process which may take several minutes.
 
 ## Running Experiments
 Experiments are located within the `src/experiments` directory, and are intended to be run from the top level. Each experiment should run out-of-the-box without additional configuration. To run a particular experiment, enter
