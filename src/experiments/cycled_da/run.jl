@@ -149,7 +149,6 @@ function run_cycled_experiment(rngseed, krange, numtrials, pfreq, N_h, N_z, F_b,
     fprintln("building localization matrices...")
 
     L_state = LL96_stateloc(N_h, N_z, lh, lz, mu)   # localization matrices
-    L_dom   = LL96_domainloc(N_h, N_z, obs_cols, obs_centers, lh, lz, mu)
 
     fprintln("computing SVD of state-space localization matrix...")
 
