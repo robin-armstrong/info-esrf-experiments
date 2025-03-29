@@ -437,7 +437,7 @@ for (pc_idx, pc) in enumerate(pcrange)
 
         info_err = mean(err["info_esrf"][pc_idx, k_idx, :])
         info_rtm = mean(runtime["info_esrf"][pc_idx, k_idx, :])
-        scatter!(ax[pc_idx, k_idx], [info_err], [info_rtm], color = algcolors["info_esrf"], marker = algmarkers["info_esrf"], markersize = 15, label = alglabels["sensrf"])
+        scatter!(ax[pc_idx, k_idx], [info_err], [info_rtm], color = algcolors["info_esrf"], marker = algmarkers["info_esrf"], markersize = 15, label = alglabels["info_esrf"])
 
         sensrf_err = mean(err["sensrf"])
         sensrf_rtm = mean(runtime["sensrf"])
