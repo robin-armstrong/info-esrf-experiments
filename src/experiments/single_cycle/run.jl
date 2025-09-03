@@ -31,55 +31,53 @@ rngseed = 1
 
 # system parameters
 
-n     = 2000    # state vector dimension
-sigma = 10      # correlation length scale
+nx    = 100     # state vector x-dimension
+ny    = 100     # state vector y-dimension
+sigma = 3       # correlation length scale
 eta   = 1e-4    # noise floor
 
 # localization tuning
 
-tune_loc = true
-lrange   = 2:2:40
+tune_loc  = true
+lrange    = 1:10
+loctrials = 1
 
 # observing system
 
-n_channels = 100
+channels_x = 10
+channels_y = 10
 bw         = 10
 
 # data assimilation settings
 
-M_da      = 20                      # data assimilation ensemble size
+M_da      = 100                     # data assimilation ensemble size
 krange    = [2, 6, 10]              # modulation factors
-da_trials = 100                     # trials per modulation factor
-lh        = 3.                      # horizontal localization length scale
-lz        = 3.                      # vertical localization length scale
+da_trials = 1                       # trials per modulation factor
 mu        = 1.                      # support width for Gaspari-Cohn function
-iternum   = 2                       # iteration count for Krylov methods
+iternum   = 5                       # iteration count for Krylov methods
 pcrange   = [1, 20]                 # preconditioner rank
 
 #############################################################################
 ################## DATA GENERATION ##########################################
 #############################################################################
 
-function chorddist(i, j, n)
-    return n*sin(pi*abs(i - j)/n)/pi
-end
-
-function run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
-                                  tune_loc, lrange, n_channels, bw, M_da, krange,
-                                  da_trials, lh, lz, mu, pcrange)
+function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, eta,
+                                  tune_loc, lrange, loctrials, channels_x, channels_y,
+                                  bw, M_da, krange, da_trials, mu, pcrange)
 
     logstr  = "rngseed    = "*string(rngseed)*"\n"
-    logstr *= "n          = "*string(n)*"\n"
+    logstr *= "nx         = "*string(nx)*"\n"
+    logstr *= "ny         = "*string(ny)*"\n"
     logstr *= "sigma      = "*string(sigma)*"\n"
     logstr *= "eta        = "*string(eta)*"\n"
     logstr *= "lrange     = "*string(lrange)*"\n"
-    logstr *= "n_channels = "*string(n_channels)*"\n"
+    logstr *= "loctrials  = "*string(loctrials)*"\n"
+    logstr *= "channels_x = "*string(channels_x)*"\n"
+    logstr *= "channels_y = "*string(channels_y)*"\n"
     logstr *= "bw         = "*string(bw)*"\n"
     logstr *= "M_da       = "*string(M_da)*"\n"
     logstr *= "krange     = "*string(krange)*"\n"
     logstr *= "da_trials  = "*string(da_trials)*"\n"
-    logstr *= "lh         = "*string(lh)*"\n"
-    logstr *= "lz         = "*string(lz)*"\n"
     logstr *= "mu         = "*string(mu)*"\n"
     logstr *= "pcrange    = "*string(pcrange)*"\n"
 
@@ -95,39 +93,61 @@ function run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
     
     fprintln("building the forecast covariance...")
 
-    c = zeros(n)
+    Cx = zeros(nx, nx)
+    Cy = zeros(ny, ny)
 
-    for i = 1:n
-        d    = chorddist(i, 1, n)
-        c[i] = exp(-.5*(d/sigma)^2)
+    for i = 1:nx
+        for j = i:nx
+            Cx[i,j] = exp(-.5*((i-j)/sigma)^2)
+            Cx[j,i] = Cx[i,j]
+        end
     end
 
-    c[1] += eta
-
-    C = zeros(n,n)
-
-    for i = 1:n
-        C[i,:] = circshift(c, i-1)
+    for i = 1:ny
+        for j = i:ny
+            Cy[i,j] = exp(-.5*((i-j)/sigma)^2)
+            Cy[j,i] = Cy[i,j]
+        end
     end
 
-    csvd  = svd(C)
-    csqrt = csvd.U*Diagonal(sqrt.(csvd.S))*csvd.U'
+    Ux, Sx, _ = svd(Cx)
+    Uy, Sy, _ = svd(Cy)
+
+    n  = nx*ny
+    C  = kron(Cx, Cy)
+
+    for i = 1:n
+        C[i,i] = C[i,i] + eta
+    end
+
+    U  = kron(Ux, Uy)
+    S  = kron(Sx, Sy) .+ eta
+    sp = sortperm(S, rev = true)
+    U  = U[:, sp]
+    S  = S[sp]
+
+    Csqrt = U*Diagonal(sqrt.(S))*U'
 
     fprintln("building forward operator...")
 
     # satellite-like observations that report weighted vertical line-integrals
-    
-    H_raw           = zeros(n_channels, n)
-    spacing         = div(n, n_channels)
-    channel_centers = spacing*(1:n_channels)
-    
-    fprintln("channel centers: "*string(channel_centers))
 
-    for (c_idx, c) in enumerate(channel_centers)
-        for i = 1:n
-            H_raw[c_idx, i] = exp(-.5*(chorddist(i, c, n)/bw)^2)
-        end
+    Hx        = zeros(channels_x, nx)
+    centers_x = round.(Int64, range(1, nx, channels_x))
+
+    for (c_idx, c) in enumerate(centers_x)
+        Hx[c_idx, :] = exp.(-.5*(((1:nx) .- c)/bw).^2)
     end
+
+    Hy        = zeros(channels_y, ny)
+    centers_y = round.(Int64, range(1, ny, channels_y))
+
+    for (c_idx, c) in enumerate(centers_y)
+        Hy[c_idx, :] = exp.(-.5*(((1:ny) .- c)/bw).^2)
+    end
+
+    H_raw      = kron(Hx, Hy)
+    n_channels = channels_x*channels_y
 
     r = .1*mean(diag(H_raw*C*H_raw'))
     fprintln("baseline obs variance: "*string(r))
@@ -164,24 +184,30 @@ function run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
     if tune_loc
         fprintln("tuning localization radius...\n")
 
-        LOCTRIALS = 50
-        loc_errs  = zeros(length(lrange), LOCTRIALS)
+        loc_errs  = zeros(length(lrange), loctrials)
 
         for (l_idx, l) in enumerate(lrange)
-            L    = zeros(n,n)
-            lrow = zeros(n)
+            Lx = zeros(nx, nx)
+            Ly = zeros(ny, ny)
 
-            for i = 1:n
-                d       = chorddist(i, 1, n)
-                lrow[i] = exp(-.5*(d/l)^2)
+            for i = 1:nx
+                for j = i:nx
+                    Lx[i,j] = exp(-.5*((i-j)/l)^2)
+                    Lx[j,i] = Lx[i,j]
+                end
             end
 
-            for i = 1:n
-                L[i,:] = circshift(lrow, i-1)
+            for i = 1:ny
+                for j = i:ny
+                    Ly[i,j] = exp(-.5*((i-j)/l)^2)
+                    Ly[j,i] = Ly[i,j]
+                end
             end
 
-            for t_idx = 1:LOCTRIALS
-                ens = csqrt*randn(rng, n, M_da)
+            L = kron(Lx, Ly)
+
+            for t_idx = 1:loctrials
+                ens = Csqrt*randn(rng, n, M_da)
                 setup_arrays!(mu_f, X_f, B, BHt, HBHt, ens, L, Z, H)
 
                 # DA perturbation update
@@ -205,25 +231,37 @@ function run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
         _, l_idx = findmin(meanerrs)
         locscale = lrange[l_idx]
 
-        L    = zeros(n,n)
-        lrow = zeros(n)
+        Lx = zeros(nx, nx)
+        Ly = zeros(ny, ny)
 
-        for i = 1:n
-            d       = chorddist(i, 1, n)
-            lrow[i] = exp(-.5*(d/locscale)^2)
+        for i = 1:nx
+            for j = i:nx
+                Lx[i,j] = exp(-.5*((i-j)/locscale)^2)
+                Lx[j,i] = Lx[i,j]
+            end
         end
 
-        for i = 1:n
-            L[i,:] = circshift(lrow, i-1)
+        for i = 1:ny
+            for j = i:ny
+                Ly[i,j] = exp(-.5*((i-j)/locscale)^2)
+                Ly[j,i] = Ly[i,j]
+            end
         end
 
-        lsvd = svd(L)
+        Ux, Sx, _ = svd(Lx)
+        Uy, Sy, _ = svd(Ly)
+
+        Ul = kron(Ux, Uy)
+        Sl = kron(Sx, Sy)
+        sp = sortperm(Sl, rev = true)
+        Ul = Ul[:, sp]
+        Sl = Sl[sp]
 
         fprintln("")
 
-        @save destination*"_locdata.jld2" locscale L lsvd
+        @save destination*"_locdata.jld2" locscale L Ul Sl
     else
-        @load destination*"_locdata.jld2" locscale L lsvd
+        @load destination*"_locdata.jld2" locscale L Ul Sl
     end
 
     fprintln("performing DA experiments...")
@@ -260,7 +298,7 @@ function run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
         Ca_nrm = tr(C_a)
 
         for (k_idx, k) in enumerate(krange)
-            mvecs = lsvd.U[:, 1:k]*Diagonal(lsvd.S[1:k].^0.5)
+            mvecs = Ul[:, 1:k]*Diagonal(Sl[1:k].^0.5)
 
             for trial_idx = 1:da_trials
                 fprintln("\n------------------------------------------------------")
@@ -269,8 +307,8 @@ function run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
                 fprintln("TRIAL    "*string(trial_idx)*" OF "*string(da_trials))
                 fprintln("------------------------------------------------------\n")
                 
-                ens = csqrt*randn(rng, n, M_da)
-                obs = H*csqrt*randn(rng, n) + sqrt(r)*randn(rng, n_channels)
+                ens = Csqrt*randn(rng, n, M_da)
+                obs = H*Csqrt*randn(rng, n) + sqrt(r)*randn(rng, n_channels)
 
                 setup_arrays!(mu_f, X_f, B, BHt, HBHt, ens, L, Z, H)
 
@@ -355,29 +393,32 @@ function run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
                 fprintln("    krylov_getkf error:  "*string(err["krylov_getkf"][pc_idx, k_idx, trial_idx]))
                 fprintln("    info_esrf error:     "*string(err["info_esrf"][pc_idx, k_idx, trial_idx]))
 
-                @save destination*"_data.jld2" C C_a pcrange krange err runtime lmax da_trials
+                @save destination*"_data.jld2" C S C_a pcrange krange err runtime lmax da_trials
             end
         end
     end
 end
 
 if !plot_only
-    run_single_da_experiment(destination, readme, rngseed, n, sigma, eta,
-                             tune_loc, lrange, n_channels, bw, M_da, krange,
-                             da_trials, lh, lz, mu, pcrange)
+    run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, eta,
+                             tune_loc, lrange, loctrials, channels_x, channels_y,
+                             bw, M_da, krange, da_trials, mu, pcrange)
 end
 
 ########################################################################################################
 ################################ PLOTTING ##############################################################
 ########################################################################################################
 
-@load destination*"_data.jld2" C C_a pcrange krange err runtime lmax da_trials
+@load destination*"_data.jld2" C S C_a pcrange krange err runtime lmax da_trials
 
 CairoMakie.activate!(visible = false, type = "pdf")
 
 fig      = Figure(size = (700, 300), fonts = (; regular = regfont))
 spectrum = Axis(fig[1,1],
-                xticks             = [0, 100, 200, 300, 400],
+                xscale             = log10,
+                xminorticksvisible = true,
+                xminorgridvisible  = true,
+                xminorticks        = IntervalsBetween(10),
                 ylabel             = "Forecast Covariance Spectrum",
                 yscale             = log10,
                 yticks             = [1e-4, 1e-3, 1e-2, 1e-1, 1, 10],
@@ -386,22 +427,11 @@ spectrum = Axis(fig[1,1],
                 yminorticks        = IntervalsBetween(10)
                )
 
-lines!(spectrum, 0:399, svd(C).S[1:400], color = :black)
+lines!(spectrum, 1:size(C,1), S, color = :black)
 
-variance = Axis(fig[1,2],
-                xlabel = "State Vector Index",
-                xticks = [1, 20, 40, 60],
-                yticks = [0, .2, .4, .6, .8, 1, 1.2]
-               )
-
-limits!(variance, 1, 60, 0, 1.2)
-
-var_f    = diag(C)
-var_a    = diag(C_a)
-
-lines!(variance, 1:60, var_f[1:60], linestyle = :dash, color = :black, label = "Forecast Variance")
-lines!(variance, 1:60, var_a[1:60], linestyle = :solid, color = :black, label = "Analysis Variance")
-axislegend(variance, position = :rc)
+variance = Axis(fig[1,2])
+heatmap!(variance, reshape(diag(C_a), ny, nx), colorrange = (0., maximum(diag(C_a))))
+Colorbar(fig[1,3], limits = (0., maximum(diag(C_a))))
 
 save(destination*"_covar_plot.pdf", fig)
 
