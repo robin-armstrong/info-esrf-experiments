@@ -31,8 +31,8 @@ rngseed = 1
 
 # system parameters
 
-nx    = 100     # state vector x-dimension
-ny    = 100     # state vector y-dimension
+nx    = 120     # state vector x-dimension
+ny    = 120     # state vector y-dimension
 sigma = 3       # correlation length scale
 eta   = 1e-4    # noise floor
 
@@ -40,22 +40,22 @@ eta   = 1e-4    # noise floor
 
 tune_loc  = true
 lrange    = 1:10
-loctrials = 1
+loctrials = 10
 
 # observing system
 
-channels_x = 10
-channels_y = 10
-bw         = 10
+channels_x = 40
+channels_y = 40
+bw         = 6
 
 # data assimilation settings
 
-M_da      = 100                     # data assimilation ensemble size
-krange    = [2, 6, 10]              # modulation factors
-da_trials = 1                       # trials per modulation factor
-mu        = 1.                      # support width for Gaspari-Cohn function
-iternum   = 5                       # iteration count for Krylov methods
-pcrange   = [1, 20]                 # preconditioner rank
+M_da      = 200         # data assimilation ensemble size
+krange    = [1, 3, 6]   # modulation factors
+da_trials = 30          # trials per modulation factor
+mu        = 1.          # support width for Gaspari-Cohn function
+iternum   = 5           # iteration count for Krylov methods
+pcrange   = [10, 100]   # preconditioner rank
 
 #############################################################################
 ################## DATA GENERATION ##########################################
@@ -128,6 +128,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
 
     Csqrt = U*Diagonal(sqrt.(S))*U'
 
+    fprintln("forecast covariance effective rank: "*string(sum(S)/S[1]))
     fprintln("building forward operator...")
 
     # satellite-like observations that report weighted vertical line-integrals
@@ -169,6 +170,13 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
     chol   = cholesky(Hermitian(I + HCHt))
     C_a    = C - CHt*(chol\CHt')
     var_a  = diag(C_a)
+
+    fprintln("calculating analysis variance for one observation...")
+
+    obs_idx = round.(Int64, .5*channels_y*(channels_x + 1))
+    h       = H[obs_idx, :]
+    Ch      = C*h
+    va      = diag(C) .- Ch.^2/(1 + h'*Ch)
 
     # preallocating arrays that we'll need later
 
@@ -221,7 +229,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
                 mul!(X_a, KpH, X_f, -1, 1)
                 v     = diag(X_a*X_a')
 
-                loc_errs[l_idx, t_idx] = norm((var_a - v)./var_a)^2/n
+                loc_errs[l_idx, t_idx] = norm((var_a - v)./var_a, 1)/n
             end
 
             fprintln("    l = "*string(l)*", err = "*string(mean(loc_errs[l_idx, :])))
@@ -325,10 +333,10 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
                     svd_getkf!(rng, mu_a, X_a, mu_f, X_f, obs, R_sqrt, H, B, M_da*k)
 
                     fprintln("    dry-running krylov_getkf...")
-                    krylov_getkf!(rng, mu_a, X_a, mu_f, X_f, obs, R_sqrt, H, BHt, HBHt, pcrank = pc)
+                    krylov_getkf!(rng, mu_a, X_a, mu_f, X_f, obs, R_sqrt, H, BHt, HBHt, iternum = iternum, pcrank = pc)
 
                     fprintln("    dry-running info_esrf...")
-                    info_esrf!(rng, mu_a, X_a, mu_f, X_f, obs, R_sqrt, H, BHt, HBHt, quadsize = k, scale = scale, pcrank = pc)
+                    info_esrf!(rng, mu_a, X_a, mu_f, X_f, obs, R_sqrt, H, BHt, HBHt, iternum = iternum, quadsize = k, scale = scale, pcrank = pc)
 
                     fprintln("")
                 end
@@ -343,7 +351,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
 
                 var_ens = diag(X_a*X_a')
 
-                err["sensrf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a)^2/n
+                err["sensrf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a, 1)/n
 
                 fprint("    mp_getkf     ")
 
@@ -353,7 +361,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
 
                 var_ens = diag(X_a*X_a')
 
-                err["mp_getkf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a)^2/n
+                err["mp_getkf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a, 1)/n
 
                 fprint("    svd_getkf    ")
 
@@ -363,7 +371,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
 
                 var_ens = diag(X_a*X_a')
 
-                err["svd_getkf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a)^2/n
+                err["svd_getkf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a, 1)/n
 
                 fprint("    krylov_getkf ")
 
@@ -373,7 +381,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
 
                 var_ens = diag(X_a*X_a')
 
-                err["krylov_getkf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a)^2/n
+                err["krylov_getkf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a, 1)/n
 
                 fprint("    info_esrf    ")
 
@@ -383,7 +391,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
 
                 var_ens = diag(X_a*X_a')
 
-                err["info_esrf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a)^2/n
+                err["info_esrf"][pc_idx, k_idx, trial_idx] = norm((var_a - var_ens)./var_a, 1)/n
 
                 fprintln("    --------------------------------------")
                 fprintln("    ERRORS:\n")
@@ -393,7 +401,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
                 fprintln("    krylov_getkf error:  "*string(err["krylov_getkf"][pc_idx, k_idx, trial_idx]))
                 fprintln("    info_esrf error:     "*string(err["info_esrf"][pc_idx, k_idx, trial_idx]))
 
-                @save destination*"_data.jld2" C S C_a pcrange krange err runtime lmax da_trials
+                @save destination*"_data.jld2" C S va pcrange krange err runtime lmax da_trials
             end
         end
     end
@@ -409,7 +417,7 @@ end
 ################################ PLOTTING ##############################################################
 ########################################################################################################
 
-@load destination*"_data.jld2" C S C_a pcrange krange err runtime lmax da_trials
+@load destination*"_data.jld2" C S va pcrange krange err runtime lmax da_trials
 
 CairoMakie.activate!(visible = false, type = "pdf")
 
@@ -421,7 +429,6 @@ spectrum = Axis(fig[1,1],
                 xminorticks        = IntervalsBetween(10),
                 ylabel             = "Forecast Covariance Spectrum",
                 yscale             = log10,
-                yticks             = [1e-4, 1e-3, 1e-2, 1e-1, 1, 10],
                 yminorticksvisible = true,
                 yminorgridvisible  = true,
                 yminorticks        = IntervalsBetween(10)
@@ -430,8 +437,8 @@ spectrum = Axis(fig[1,1],
 lines!(spectrum, 1:size(C,1), S, color = :black)
 
 variance = Axis(fig[1,2])
-heatmap!(variance, reshape(diag(C_a), ny, nx), colorrange = (0., maximum(diag(C_a))))
-Colorbar(fig[1,3], limits = (0., maximum(diag(C_a))))
+heatmap!(variance, reshape(va, ny, nx), colorrange = (minimum(va), maximum(va)))
+Colorbar(fig[1,3], limits = (minimum(va), maximum(va)))
 
 save(destination*"_covar_plot.pdf", fig)
 
@@ -444,19 +451,16 @@ for (pc_idx, pc) in enumerate(pcrange)
                                 title              = "p = "*string(pc)*", k = "*string(k),
                                 titlefont          = regfont,
                                 xlabel             = (k_idx == 3 ? "Analysis Variance Error" : ""),
-                                xscale             = log10,
-                                xticks             = [.1, 1., 10],
                                 xminorgridvisible  = true,
                                 xminorticksvisible = true,
                                 xminorticks        = IntervalsBetween(10),
                                 ylabel             = (pc_idx == 1 ? "Runtime (s)" : ""),
                                 yscale             = log10,
-                                yticks             = [.001, .01, .1, 1],
                                 yminorgridvisible  = true,
                                 yminorticksvisible = true,
                                 yminorticks        = IntervalsBetween(10))
 
-        limits!(ax[pc_idx, k_idx], .03, 10, 8e-4, 1)
+        limits!(ax[pc_idx, k_idx], .03, .6, 1e-1, 1e3)
 
         for alg in ["mp_getkf", "svd_getkf"]
             mean_err = mean(err[alg][:, k_idx, :])
