@@ -401,7 +401,7 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
                 fprintln("    krylov_getkf error:  "*string(err["krylov_getkf"][pc_idx, k_idx, trial_idx]))
                 fprintln("    info_esrf error:     "*string(err["info_esrf"][pc_idx, k_idx, trial_idx]))
 
-                @save destination*"_data.jld2" C S va pcrange krange err runtime lmax da_trials
+                @save destination*"_data.jld2" C S H pcrange krange err runtime lmax da_trials
             end
         end
     end
@@ -417,12 +417,13 @@ end
 ################################ PLOTTING ##############################################################
 ########################################################################################################
 
-@load destination*"_data.jld2" C S va pcrange krange err runtime lmax da_trials
+@load destination*"_data.jld2" C S H pcrange krange err runtime lmax da_trials
 
 CairoMakie.activate!(visible = false, type = "pdf")
 
 fig      = Figure(size = (700, 300), fonts = (; regular = regfont))
 spectrum = Axis(fig[1,1],
+                xlabel             = "Eigenvalue Index",
                 xscale             = log10,
                 xminorticksvisible = true,
                 xminorgridvisible  = true,
@@ -436,8 +437,11 @@ spectrum = Axis(fig[1,1],
 
 lines!(spectrum, 1:size(C,1), S, color = :black)
 
-variance = Axis(fig[1,2])
-heatmap!(variance, reshape(va, ny, nx), colorrange = (minimum(va), maximum(va)))
+variance = Axis(fig[1,2],
+                xlabel = "X-coordinate",
+                ylabel = "Y-coordinate")
+
+heatmap!(variance, 40:80, 40:80, reshape(va, ny, nx)[40:80, 40:80], colorrange = (minimum(va), maximum(va)))
 Colorbar(fig[1,3], limits = (minimum(va), maximum(va)))
 
 save(destination*"_covar_plot.pdf", fig)
