@@ -446,7 +446,6 @@ variance = Axis(fig[1,2],
                 xlabel = "X-coordinate",
                 ylabel = "Y-coordinate")
 
-#heatmap!(variance, reshape(va, ny, nx), colorrange = (minimum(va), maximum(va)))
 heatmap!(variance, 40:80, 40:80, reshape(va, ny, nx)[40:80, 40:80], colorrange = (minimum(va), maximum(va)))
 Colorbar(fig[1,3], limits = (minimum(va), maximum(va)))
 
