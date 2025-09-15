@@ -98,14 +98,14 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
 
     for i = 1:nx
         for j = i:nx
-            Cx[i,j] = exp(-.5*((i-j)/sigma)^2)
+            Cx[i,j] = sqrt(1 - eta)*exp(-.5*((i-j)/sigma)^2)
             Cx[j,i] = Cx[i,j]
         end
     end
 
     for i = 1:ny
         for j = i:ny
-            Cy[i,j] = exp(-.5*((i-j)/sigma)^2)
+            Cy[i,j] = sqrt(1 - eta)*exp(-.5*((i-j)/sigma)^2)
             Cy[j,i] = Cy[i,j]
         end
     end
@@ -134,14 +134,16 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
     # satellite-like observations that report weighted vertical line-integrals
 
     Hx        = zeros(channels_x, nx)
-    centers_x = round.(Int64, range(1, nx, channels_x))
+    dx        = div(nx, channels_x)
+    centers_x = dx:dx:nx
 
     for (c_idx, c) in enumerate(centers_x)
         Hx[c_idx, :] = exp.(-.5*(((1:nx) .- c)/bw).^2)
     end
 
     Hy        = zeros(channels_y, ny)
-    centers_y = round.(Int64, range(1, ny, channels_y))
+    dy        = div(nx, channels_x)
+    centers_y = dy:dy:ny
 
     for (c_idx, c) in enumerate(centers_y)
         Hy[c_idx, :] = exp.(-.5*(((1:ny) .- c)/bw).^2)
@@ -170,13 +172,6 @@ function run_single_da_experiment(destination, readme, rngseed, nx, ny, sigma, e
     chol   = cholesky(Hermitian(I + HCHt))
     C_a    = C - CHt*(chol\CHt')
     var_a  = diag(C_a)
-
-    fprintln("calculating analysis variance for one observation...")
-
-    obs_idx = round.(Int64, .5*channels_y*(channels_x + 1))
-    h       = H[obs_idx, :]
-    Ch      = C*h
-    va      = diag(C) .- Ch.^2/(1 + h'*Ch)
 
     # preallocating arrays that we'll need later
 
@@ -417,7 +412,14 @@ end
 ################################ PLOTTING ##############################################################
 ########################################################################################################
 
+@load destination*"_locdata.jld2" locscale L Ul Sl
 @load destination*"_data.jld2" C S H pcrange krange err runtime lmax da_trials
+
+
+obs_idx = 780
+h       = H[obs_idx, :]
+Ch      = C*h
+va      = diag(C) .- Ch.^2/(1 + h'*Ch)
 
 CairoMakie.activate!(visible = false, type = "pdf")
 
@@ -428,19 +430,23 @@ spectrum = Axis(fig[1,1],
                 xminorticksvisible = true,
                 xminorgridvisible  = true,
                 xminorticks        = IntervalsBetween(10),
-                ylabel             = "Forecast Covariance Spectrum",
+                ylabel             = "Eigenvalue Spectrum",
                 yscale             = log10,
                 yminorticksvisible = true,
                 yminorgridvisible  = true,
                 yminorticks        = IntervalsBetween(10)
                )
+limits!(spectrum, .5, 5e4, 5e-5, 5e2)
 
-lines!(spectrum, 1:size(C,1), S, color = :black)
+lines!(spectrum, 1:size(C,1), S, color = :black, label = "Forecast Cov.")
+lines!(spectrum, 1:size(C,1), Sl, color = :black, linestyle = :dash, label = "Localizer")
+axislegend(position = :lb)
 
 variance = Axis(fig[1,2],
                 xlabel = "X-coordinate",
                 ylabel = "Y-coordinate")
 
+#heatmap!(variance, reshape(va, ny, nx), colorrange = (minimum(va), maximum(va)))
 heatmap!(variance, 40:80, 40:80, reshape(va, ny, nx)[40:80, 40:80], colorrange = (minimum(va), maximum(va)))
 Colorbar(fig[1,3], limits = (minimum(va), maximum(va)))
 
